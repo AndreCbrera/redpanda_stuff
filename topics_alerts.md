@@ -104,3 +104,93 @@ groups:
 - To use these alerts, ensure you have enabled the relevant metrics in your Redpanda configuration as described in the documentation.
 
 If you need more specific alerting scenarios or have a particular use case, let me know!
+
+---
+
+Thank you for clarifying which metrics you have available. If you do not have `redpanda_kafka_consumer_group_lag_sum`, you can still monitor consumer group lag by calculating it using the available metrics:  
+- `redpanda_kafka_consumer_group_committed_offset`
+- `redpanda_kafka_max_offset` (this one is required for lag calculation, and is available in all recent Redpanda versions)
+
+### Calculating Consumer Group Lag
+
+You can calculate consumer group lag by subtracting the committed offset from the broker’s latest offset for each partition. The recommended Prometheus query is:
+
+```prometheus
+max by(redpanda_namespace, redpanda_topic, redpanda_partition)(redpanda_kafka_max_offset{redpanda_namespace="kafka"})
+  - on(redpanda_topic, redpanda_partition)
+    group_right
+    max by(redpanda_group, redpanda_topic, redpanda_partition)(redpanda_kafka_consumer_group_committed_offset)
+```
+This query gives you the lag per partition and consumer group. You can then use this result to create alerts for high lag situations.  
+[See: Offset-based calculation](https://docs.redpanda.com/current/manage/monitoring/#offset-based-calculation)
+
+---
+
+### Example Prometheus Alert for Consumer Group Lag
+
+```yaml
+groups:
+  - name: Redpanda Consumer Lag Alerts
+    rules:
+      - alert: RedpandaConsumerGroupLagHigh
+        expr: |
+          max by(redpanda_group, redpanda_topic, redpanda_partition)(
+            max by(redpanda_namespace, redpanda_topic, redpanda_partition)(redpanda_kafka_max_offset{redpanda_namespace="kafka"})
+            - on(redpanda_topic, redpanda_partition)
+              group_right
+              max by(redpanda_group, redpanda_topic, redpanda_partition)(redpanda_kafka_consumer_group_committed_offset)
+          ) > 10000
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High consumer group lag"
+          description: "Consumer group lag has exceeded 10,000 messages for 10 minutes."
+```
+Adjust the threshold as needed for your environment.
+
+---
+
+### Other Available Metrics
+
+You can also create alerts for the other metrics you mentioned:
+
+#### Number of Consumers in a Group
+
+```yaml
+- alert: RedpandaConsumerGroupNoConsumers
+  expr: redpanda_kafka_consumer_group_consumers == 0
+  for: 5m
+  labels:
+    severity: warning
+  annotations:
+    summary: "Consumer group has no active consumers"
+    description: "A consumer group has had zero active consumers for 5 minutes."
+```
+[See: Consumer group metrics](https://docs.redpanda.com/current/reference/public-metrics-reference/#consumer-group-metrics)
+
+#### Number of Topics Consumed by a Group
+
+```yaml
+- alert: RedpandaConsumerGroupNoTopics
+  expr: redpanda_kafka_consumer_group_topics == 0
+  for: 5m
+  labels:
+    severity: warning
+  annotations:
+    summary: "Consumer group not consuming any topics"
+    description: "A consumer group is not consuming any topics for 5 minutes."
+```
+[See: Consumer group metrics](https://docs.redpanda.com/current/reference/public-metrics-reference/#consumer-group-metrics)
+
+---
+
+**Summary:**  
+- Use the offset-based calculation for consumer group lag with your available metrics.
+- You can alert on the number of consumers and topics per group using the metrics you listed.
+- If you need more advanced lag metrics (like `redpanda_kafka_consumer_group_lag_sum`), you may need to enable additional consumer group metrics in your Redpanda configuration if your version supports it.
+
+If you need help with a specific alert or query, let me know!ç
+
+--
+
