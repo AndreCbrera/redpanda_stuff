@@ -134,8 +134,8 @@ groups:
     rules:
       - alert: RedpandaConsumerGroupLagHigh
         expr: |
-          max by(redpanda_group, redpanda_topic, redpanda_partition)(
-            max by(redpanda_namespace, redpanda_topic, redpanda_partition)(redpanda_kafka_max_offset{redpanda_namespace="kafka"})
+          max by(env, redpanda_group, redpanda_topic, redpanda_partition)(
+            max by(redpanda_namespace, redpanda_topic, redpanda_partition)(redpanda_kafka_max_offset{env="stg",redpanda_namespace="kafka"})
             - on(redpanda_topic, redpanda_partition)
               group_right
               max by(redpanda_group, redpanda_topic, redpanda_partition)(redpanda_kafka_consumer_group_committed_offset)
@@ -194,3 +194,66 @@ If you need help with a specific alert or query, let me know!ç
 
 --
 
+For storage monitoring and alerting in Redpanda, the most important metrics and recommended alerts are:
+
+---
+
+### Key Storage Metrics
+
+- **Total Disk Size:** `redpanda_storage_disk_total_bytes`
+- **Free Disk Space:** `redpanda_storage_disk_free_bytes`
+- **Disk Space Alert Status:** `redpanda_storage_disk_free_space_alert`
+
+You can monitor the percentage of disk consumed with:
+```prometheus
+1 - (sum(redpanda_storage_disk_free_bytes) / sum(redpanda_storage_disk_total_bytes))
+```
+[Monitor for performance and health](https://docs.redpanda.com/current/manage/monitoring/#infrastructure-resources)
+
+---
+
+### Disk Space Alerting
+
+Redpanda provides a built-in alert metric:  
+- `redpanda_storage_disk_free_space_alert`
+  - `0` = No alert
+  - `1` = Low free space alert
+  - `2` = Out of space (degraded, external writes are rejected)
+
+**Example Prometheus alert rules:**
+```yaml
+- alert: RedpandaDiskLowFreeSpace
+  expr: redpanda_storage_disk_free_space_alert == 1
+  for: 5m
+  labels:
+    severity: warning
+  annotations:
+    summary: "Redpanda node low on disk space"
+    description: "A Redpanda node is running low on disk space."
+
+- alert: RedpandaDiskOutOfSpace
+  expr: redpanda_storage_disk_free_space_alert == 2
+  for: 1m
+  labels:
+    severity: critical
+  annotations:
+    summary: "Redpanda node out of disk space"
+    description: "A Redpanda node is out of disk space. External writes are being rejected."
+```
+[Monitor disk space](https://docs.redpanda.com/current/manage/cluster-maintenance/disk-utilization/#monitor-disk-space)
+
+---
+
+### Configurable Thresholds
+
+You can set soft and hard disk space thresholds using:
+- `storage_space_alert_free_threshold_bytes`
+- `storage_space_alert_free_threshold_percent`
+- `storage_min_free_bytes`
+
+When thresholds are crossed, the `redpanda_storage_disk_free_space_alert` metric is updated and an error is logged. Once disk space is freed, the metric is updated accordingly [Set free disk space thresholds](https://docs.redpanda.com/current/manage/cluster-maintenance/disk-utilization/#set-free-disk-space-thresholds).
+
+---
+
+**In summary:**  
+Monitor `redpanda_storage_disk_free_space_alert` for storage alerts, and use the disk usage formula for proactive monitoring. Set Prometheus alerts for both low and critical disk space conditions as shown above.
